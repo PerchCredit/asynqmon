@@ -32,7 +32,7 @@ var (
 
 func init() {
 	flag.IntVar(&flagPort, "port", 8080, "port number to use for web ui server")
-	flag.StringVar(&flagRedisAddr, "redis-addr", "127.0.0.1:6379", "address of redis server to connect to")
+	flag.StringVar(&flagRedisAddr, "redis-addr", "prod-job.h6keia.0001.usw2.cache.amazonaws.com:6379", "address of redis server to connect to")
 	flag.IntVar(&flagRedisDB, "redis-db", 0, "redis database number")
 	flag.StringVar(&flagRedisPassword, "redis-password", "", "password to use when connecting to redis server")
 	flag.StringVar(&flagRedisTLS, "redis-tls", "", "server name for TLS validation used when connecting to redis server")
