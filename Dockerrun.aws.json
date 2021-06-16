@@ -1,7 +1,7 @@
 {
   "AWSEBDockerrunVersion": "1",
   "Image": {
-    "Name": "sahilsk11/asynqmon:latest"
+    "Name": "447866867700.dkr.ecr.us-west-2.amazonaws.com/stage/asynqmon:latest"
   },
   "Ports": [
     {
