@@ -54,18 +54,18 @@ export interface BatchCancelTasksResponse {
 }
 
 export interface BatchDeleteTasksResponse {
-  deleted_keys: string[];
-  failed_keys: string[];
+  deleted_ids: string[];
+  failed_ids: string[];
 }
 
 export interface BatchRunTasksResponse {
-  pending_keys: string[];
-  error_keys: string[];
+  pending_ids: string[];
+  error_ids: string[];
 }
 
 export interface BatchArchiveTasksResponse {
-  archived_keys: string[];
-  error_keys: string[];
+  archived_ids: string[];
+  error_ids: string[];
 }
 
 export interface DeleteAllTasksResponse {
@@ -242,7 +242,22 @@ export interface DailyStat {
 // BaseTask corresponds to asynq.Task type.
 interface BaseTask {
   type: string;
-  payload: { [key: string]: any };
+  payload: string;
+}
+
+export interface TaskInfo {
+  id: string;
+  queue: string;
+  type: string;
+  payload: string;
+  state: string;
+  max_retry: number;
+  retried: number;
+  last_failed_at: string;
+  error_message: string;
+  next_process_at: string;
+  timeout_seconds: number;
+  deadline: string;
 }
 
 export interface ActiveTask extends BaseTask {
@@ -257,7 +272,6 @@ export interface ActiveTask extends BaseTask {
 
 export interface PendingTask extends BaseTask {
   id: string;
-  key: string;
   queue: string;
   max_retry: number;
   retried: number;
@@ -266,7 +280,6 @@ export interface PendingTask extends BaseTask {
 
 export interface ScheduledTask extends BaseTask {
   id: string;
-  key: string;
   queue: string;
   max_retry: number;
   retried: number;
@@ -276,7 +289,6 @@ export interface ScheduledTask extends BaseTask {
 
 export interface RetryTask extends BaseTask {
   id: string;
-  key: string;
   queue: string;
   next_process_at: string;
   max_retry: number;
@@ -286,7 +298,6 @@ export interface RetryTask extends BaseTask {
 
 export interface ArchivedTask extends BaseTask {
   id: string;
-  key: string;
   queue: string;
   max_retry: number;
   retried: number;
@@ -307,7 +318,10 @@ export interface ServerInfo {
 }
 
 export interface WorkerInfo {
-  task: ActiveTask;
+  task_id: string;
+  queue: string;
+  task_type: string;
+  task_payload: string;
   start_time: string;
 }
 
@@ -315,7 +329,7 @@ export interface SchedulerEntry {
   id: string;
   spec: string;
   task_type: string;
-  task_payload: { [key: string]: any };
+  task_payload: string;
   options: string[];
   next_enqueue_at: string;
   // prev_enqueue_at will be omitted
@@ -366,6 +380,15 @@ export async function listQueueStats(): Promise<ListQueueStatsResponse> {
   const resp = await axios({
     method: "get",
     url: `${BASE_URL}/queue_stats`,
+  });
+  return resp.data;
+}
+
+export async function getTaskInfo(qname: string, id: string): Promise<TaskInfo> {
+  const url = `${BASE_URL}/queues/${qname}/tasks/${id}`;
+  const resp = await axios({
+    method: "get",
+    url,
   });
   return resp.data;
 }
@@ -478,23 +501,23 @@ export async function listArchivedTasks(
 
 export async function archivePendingTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/pending_tasks/${taskKey}:archive`,
+    url: `${BASE_URL}/queues/${qname}/pending_tasks/${taskId}:archive`,
   });
 }
 
 export async function batchArchivePendingTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchArchiveTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/pending_tasks:batch_archive`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -509,23 +532,23 @@ export async function archiveAllPendingTasks(qname: string): Promise<void> {
 
 export async function deletePendingTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "delete",
-    url: `${BASE_URL}/queues/${qname}/pending_tasks/${taskKey}`,
+    url: `${BASE_URL}/queues/${qname}/pending_tasks/${taskId}`,
   });
 }
 
 export async function batchDeletePendingTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchDeleteTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/pending_tasks:batch_delete`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -543,43 +566,43 @@ export async function deleteAllPendingTasks(
 
 export async function runScheduledTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskKey}:run`,
+    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskId}:run`,
   });
 }
 
 export async function archiveScheduledTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskKey}:archive`,
+    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskId}:archive`,
   });
 }
 
 export async function deleteScheduledTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "delete",
-    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskKey}`,
+    url: `${BASE_URL}/queues/${qname}/scheduled_tasks/${taskId}`,
   });
 }
 
 export async function batchDeleteScheduledTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchDeleteTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/scheduled_tasks:batch_delete`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -597,13 +620,13 @@ export async function deleteAllScheduledTasks(
 
 export async function batchRunScheduledTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchRunTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/scheduled_tasks:batch_run`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -618,13 +641,13 @@ export async function runAllScheduledTasks(qname: string): Promise<void> {
 
 export async function batchArchiveScheduledTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchArchiveTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/scheduled_tasks:batch_archive`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -639,43 +662,43 @@ export async function archiveAllScheduledTasks(qname: string): Promise<void> {
 
 export async function runRetryTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskKey}:run`,
+    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskId}:run`,
   });
 }
 
 export async function archiveRetryTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskKey}:archive`,
+    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskId}:archive`,
   });
 }
 
 export async function deleteRetryTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "delete",
-    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskKey}`,
+    url: `${BASE_URL}/queues/${qname}/retry_tasks/${taskId}`,
   });
 }
 
 export async function batchDeleteRetryTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchDeleteTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/retry_tasks:batch_delete`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -693,13 +716,13 @@ export async function deleteAllRetryTasks(
 
 export async function batchRunRetryTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchRunTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/retry_tasks:batch_run`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -714,13 +737,13 @@ export async function runAllRetryTasks(qname: string): Promise<void> {
 
 export async function batchArchiveRetryTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchArchiveTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/retry_tasks:batch_archive`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -735,33 +758,33 @@ export async function archiveAllRetryTasks(qname: string): Promise<void> {
 
 export async function runArchivedTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "post",
-    url: `${BASE_URL}/queues/${qname}/archived_tasks/${taskKey}:run`,
+    url: `${BASE_URL}/queues/${qname}/archived_tasks/${taskId}:run`,
   });
 }
 
 export async function deleteArchivedTask(
   qname: string,
-  taskKey: string
+  taskId: string
 ): Promise<void> {
   await axios({
     method: "delete",
-    url: `${BASE_URL}/queues/${qname}/archived_tasks/${taskKey}`,
+    url: `${BASE_URL}/queues/${qname}/archived_tasks/${taskId}`,
   });
 }
 
 export async function batchDeleteArchivedTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchDeleteTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/archived_tasks:batch_delete`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;
@@ -779,13 +802,13 @@ export async function deleteAllArchivedTasks(
 
 export async function batchRunArchivedTasks(
   qname: string,
-  taskKeys: string[]
+  taskIds: string[]
 ): Promise<BatchRunTasksResponse> {
   const resp = await axios({
     method: "post",
     url: `${BASE_URL}/queues/${qname}/archived_tasks:batch_run`,
     data: {
-      task_keys: taskKeys,
+      task_ids: taskIds,
     },
   });
   return resp.data;

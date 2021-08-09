@@ -2,9 +2,10 @@ package main
 
 import (
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hibiken/asynq"
-	"github.com/hibiken/asynq/inspeq"
 )
 
 // ****************************************************************************
@@ -40,7 +41,7 @@ type QueueStateSnapshot struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-func toQueueStateSnapshot(s *inspeq.QueueStats) *QueueStateSnapshot {
+func toQueueStateSnapshot(s *asynq.QueueInfo) *QueueStateSnapshot {
 	return &QueueStateSnapshot{
 		Queue:       s.Queue,
 		MemoryUsage: s.MemoryUsage,
@@ -66,7 +67,7 @@ type DailyStats struct {
 	Date      string `json:"date"`
 }
 
-func toDailyStats(s *inspeq.DailyStats) *DailyStats {
+func toDailyStats(s *asynq.DailyStats) *DailyStats {
 	return &DailyStats{
 		Queue:     s.Queue,
 		Processed: s.Processed,
@@ -76,7 +77,7 @@ func toDailyStats(s *inspeq.DailyStats) *DailyStats {
 	}
 }
 
-func toDailyStatsList(in []*inspeq.DailyStats) []*DailyStats {
+func toDailyStatsList(in []*asynq.DailyStats) []*DailyStats {
 	out := make([]*DailyStats, len(in))
 	for i, s := range in {
 		out[i] = toDailyStats(s)
@@ -84,14 +85,69 @@ func toDailyStatsList(in []*inspeq.DailyStats) []*DailyStats {
 	return out
 }
 
+type TaskInfo struct {
+	// ID is the identifier of the task.
+	ID string `json:"id"`
+	// Queue is the name of the queue in which the task belongs.
+	Queue string `json:"queue"`
+	// Type is the type name of the task.
+	Type string `json:"type"`
+	// Payload is the payload data of the task.
+	Payload string `json:"payload"`
+	// State indicates the task state.
+	State string `json:"state"`
+	// MaxRetry is the maximum number of times the task can be retried.
+	MaxRetry int `json:"max_retry"`
+	// Retried is the number of times the task has retried so far.
+	Retried int `json:"retried"`
+	// LastErr is the error message from the last failure.
+	LastErr string `json:"error_message"`
+	// LastFailedAt is the time time of the last failure in RFC3339 format.
+	// If the task has no failures, empty string.
+	LastFailedAt string `json:"last_failed_at"`
+	// Timeout is the number of seconds the task can be processed by Handler before being retried.
+	Timeout int `json:"timeout_seconds"`
+	// Deadline is the deadline for the task in RFC3339 format. If not set, empty string.
+	Deadline string `json:"deadline"`
+	// NextProcessAt is the time the task is scheduled to be processed in RFC3339 format.
+	// If not applicable, empty string.
+	NextProcessAt string `json:"next_process_at"`
+}
+
+// formatTimeInRFC3339 formats t in RFC3339 if the value is non-zero.
+// If t is zero time (i.e. time.Time{}), returns empty string
+func formatTimeInRFC3339(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
+
+func toTaskInfo(info *asynq.TaskInfo) *TaskInfo {
+	return &TaskInfo{
+		ID:            info.ID,
+		Queue:         info.Queue,
+		Type:          info.Type,
+		Payload:       toPrintablePayload(info.Payload),
+		State:         info.State.String(),
+		MaxRetry:      info.MaxRetry,
+		Retried:       info.Retried,
+		LastErr:       info.LastErr,
+		LastFailedAt:  formatTimeInRFC3339(info.LastFailedAt),
+		Timeout:       int(info.Timeout.Seconds()),
+		Deadline:      formatTimeInRFC3339(info.Deadline),
+		NextProcessAt: formatTimeInRFC3339(info.NextProcessAt),
+	}
+}
+
 type BaseTask struct {
-	ID        string        `json:"id"`
-	Type      string        `json:"type"`
-	Payload   asynq.Payload `json:"payload"`
-	Queue     string        `json:"queue"`
-	MaxRetry  int           `json:"max_retry"`
-	Retried   int           `json:"retried"`
-	LastError string        `json:"error_message"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Payload   string `json:"payload"`
+	Queue     string `json:"queue"`
+	MaxRetry  int    `json:"max_retry"`
+	Retried   int    `json:"retried"`
+	LastError string `json:"error_message"`
 }
 
 type ActiveTask struct {
@@ -111,20 +167,20 @@ type ActiveTask struct {
 	Deadline string `json:"deadline"`
 }
 
-func toActiveTask(t *inspeq.ActiveTask) *ActiveTask {
+func toActiveTask(t *asynq.TaskInfo) *ActiveTask {
 	base := &BaseTask{
 		ID:        t.ID,
 		Type:      t.Type,
-		Payload:   t.Payload,
+		Payload:   toPrintablePayload(t.Payload),
 		Queue:     t.Queue,
 		MaxRetry:  t.MaxRetry,
 		Retried:   t.Retried,
-		LastError: t.LastError,
+		LastError: t.LastErr,
 	}
 	return &ActiveTask{BaseTask: base}
 }
 
-func toActiveTasks(in []*inspeq.ActiveTask) []*ActiveTask {
+func toActiveTasks(in []*asynq.TaskInfo) []*ActiveTask {
 	out := make([]*ActiveTask, len(in))
 	for i, t := range in {
 		out[i] = toActiveTask(t)
@@ -132,28 +188,27 @@ func toActiveTasks(in []*inspeq.ActiveTask) []*ActiveTask {
 	return out
 }
 
+// TODO: Maybe we don't need state specific type, just use TaskInfo
 type PendingTask struct {
 	*BaseTask
-	Key string `json:"key"`
 }
 
-func toPendingTask(t *inspeq.PendingTask) *PendingTask {
+func toPendingTask(t *asynq.TaskInfo) *PendingTask {
 	base := &BaseTask{
 		ID:        t.ID,
 		Type:      t.Type,
-		Payload:   t.Payload,
+		Payload:   toPrintablePayload(t.Payload),
 		Queue:     t.Queue,
 		MaxRetry:  t.MaxRetry,
 		Retried:   t.Retried,
-		LastError: t.LastError,
+		LastError: t.LastErr,
 	}
 	return &PendingTask{
 		BaseTask: base,
-		Key:      t.Key(),
 	}
 }
 
-func toPendingTasks(in []*inspeq.PendingTask) []*PendingTask {
+func toPendingTasks(in []*asynq.TaskInfo) []*PendingTask {
 	out := make([]*PendingTask, len(in))
 	for i, t := range in {
 		out[i] = toPendingTask(t)
@@ -163,28 +218,50 @@ func toPendingTasks(in []*inspeq.PendingTask) []*PendingTask {
 
 type ScheduledTask struct {
 	*BaseTask
-	Key           string    `json:"key"`
 	NextProcessAt time.Time `json:"next_process_at"`
 }
 
-func toScheduledTask(t *inspeq.ScheduledTask) *ScheduledTask {
+// isPrintable reports whether the given data is comprised of all printable runes.
+func isPrintable(data []byte) bool {
+	if !utf8.Valid(data) {
+		return false
+	}
+	isAllSpace := true
+	for _, r := range string(data) {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+		if !unicode.IsSpace(r) {
+			isAllSpace = false
+		}
+	}
+	return !isAllSpace
+}
+
+func toPrintablePayload(payload []byte) string {
+	if !isPrintable(payload) {
+		return "non-printable bytes"
+	}
+	return string(payload)
+}
+
+func toScheduledTask(t *asynq.TaskInfo) *ScheduledTask {
 	base := &BaseTask{
 		ID:        t.ID,
 		Type:      t.Type,
-		Payload:   t.Payload,
+		Payload:   toPrintablePayload(t.Payload),
 		Queue:     t.Queue,
 		MaxRetry:  t.MaxRetry,
 		Retried:   t.Retried,
-		LastError: t.LastError,
+		LastError: t.LastErr,
 	}
 	return &ScheduledTask{
 		BaseTask:      base,
-		Key:           t.Key(),
 		NextProcessAt: t.NextProcessAt,
 	}
 }
 
-func toScheduledTasks(in []*inspeq.ScheduledTask) []*ScheduledTask {
+func toScheduledTasks(in []*asynq.TaskInfo) []*ScheduledTask {
 	out := make([]*ScheduledTask, len(in))
 	for i, t := range in {
 		out[i] = toScheduledTask(t)
@@ -194,28 +271,26 @@ func toScheduledTasks(in []*inspeq.ScheduledTask) []*ScheduledTask {
 
 type RetryTask struct {
 	*BaseTask
-	Key           string    `json:"key"`
 	NextProcessAt time.Time `json:"next_process_at"`
 }
 
-func toRetryTask(t *inspeq.RetryTask) *RetryTask {
+func toRetryTask(t *asynq.TaskInfo) *RetryTask {
 	base := &BaseTask{
 		ID:        t.ID,
 		Type:      t.Type,
-		Payload:   t.Payload,
+		Payload:   toPrintablePayload(t.Payload),
 		Queue:     t.Queue,
 		MaxRetry:  t.MaxRetry,
 		Retried:   t.Retried,
-		LastError: t.LastError,
+		LastError: t.LastErr,
 	}
 	return &RetryTask{
 		BaseTask:      base,
-		Key:           t.Key(),
 		NextProcessAt: t.NextProcessAt,
 	}
 }
 
-func toRetryTasks(in []*inspeq.RetryTask) []*RetryTask {
+func toRetryTasks(in []*asynq.TaskInfo) []*RetryTask {
 	out := make([]*RetryTask, len(in))
 	for i, t := range in {
 		out[i] = toRetryTask(t)
@@ -225,28 +300,26 @@ func toRetryTasks(in []*inspeq.RetryTask) []*RetryTask {
 
 type ArchivedTask struct {
 	*BaseTask
-	Key          string    `json:"key"`
 	LastFailedAt time.Time `json:"last_failed_at"`
 }
 
-func toArchivedTask(t *inspeq.ArchivedTask) *ArchivedTask {
+func toArchivedTask(t *asynq.TaskInfo) *ArchivedTask {
 	base := &BaseTask{
 		ID:        t.ID,
 		Type:      t.Type,
-		Payload:   t.Payload,
+		Payload:   toPrintablePayload(t.Payload),
 		Queue:     t.Queue,
 		MaxRetry:  t.MaxRetry,
 		Retried:   t.Retried,
-		LastError: t.LastError,
+		LastError: t.LastErr,
 	}
 	return &ArchivedTask{
 		BaseTask:     base,
-		Key:          t.Key(),
 		LastFailedAt: t.LastFailedAt,
 	}
 }
 
-func toArchivedTasks(in []*inspeq.ArchivedTask) []*ArchivedTask {
+func toArchivedTasks(in []*asynq.TaskInfo) []*ArchivedTask {
 	out := make([]*ArchivedTask, len(in))
 	for i, t := range in {
 		out[i] = toArchivedTask(t)
@@ -255,17 +328,17 @@ func toArchivedTasks(in []*inspeq.ArchivedTask) []*ArchivedTask {
 }
 
 type SchedulerEntry struct {
-	ID            string        `json:"id"`
-	Spec          string        `json:"spec"`
-	TaskType      string        `json:"task_type"`
-	TaskPayload   asynq.Payload `json:"task_payload"`
-	Opts          []string      `json:"options"`
-	NextEnqueueAt string        `json:"next_enqueue_at"`
+	ID            string   `json:"id"`
+	Spec          string   `json:"spec"`
+	TaskType      string   `json:"task_type"`
+	TaskPayload   string   `json:"task_payload"`
+	Opts          []string `json:"options"`
+	NextEnqueueAt string   `json:"next_enqueue_at"`
 	// This field is omitted if there were no previous enqueue events.
 	PrevEnqueueAt string `json:"prev_enqueue_at,omitempty"`
 }
 
-func toSchedulerEntry(e *inspeq.SchedulerEntry) *SchedulerEntry {
+func toSchedulerEntry(e *asynq.SchedulerEntry) *SchedulerEntry {
 	opts := make([]string, 0) // create a non-nil, empty slice to avoid null in json output
 	for _, o := range e.Opts {
 		opts = append(opts, o.String())
@@ -277,15 +350,15 @@ func toSchedulerEntry(e *inspeq.SchedulerEntry) *SchedulerEntry {
 	return &SchedulerEntry{
 		ID:            e.ID,
 		Spec:          e.Spec,
-		TaskType:      e.Task.Type,
-		TaskPayload:   e.Task.Payload,
+		TaskType:      e.Task.Type(),
+		TaskPayload:   toPrintablePayload(e.Task.Payload()),
 		Opts:          opts,
 		NextEnqueueAt: e.Next.Format(time.RFC3339),
 		PrevEnqueueAt: prev,
 	}
 }
 
-func toSchedulerEntries(in []*inspeq.SchedulerEntry) []*SchedulerEntry {
+func toSchedulerEntries(in []*asynq.SchedulerEntry) []*SchedulerEntry {
 	out := make([]*SchedulerEntry, len(in))
 	for i, e := range in {
 		out[i] = toSchedulerEntry(e)
@@ -298,14 +371,14 @@ type SchedulerEnqueueEvent struct {
 	EnqueuedAt string `json:"enqueued_at"`
 }
 
-func toSchedulerEnqueueEvent(e *inspeq.SchedulerEnqueueEvent) *SchedulerEnqueueEvent {
+func toSchedulerEnqueueEvent(e *asynq.SchedulerEnqueueEvent) *SchedulerEnqueueEvent {
 	return &SchedulerEnqueueEvent{
 		TaskID:     e.TaskID,
 		EnqueuedAt: e.EnqueuedAt.Format(time.RFC3339),
 	}
 }
 
-func toSchedulerEnqueueEvents(in []*inspeq.SchedulerEnqueueEvent) []*SchedulerEnqueueEvent {
+func toSchedulerEnqueueEvents(in []*asynq.SchedulerEnqueueEvent) []*SchedulerEnqueueEvent {
 	out := make([]*SchedulerEnqueueEvent, len(in))
 	for i, e := range in {
 		out[i] = toSchedulerEnqueueEvent(e)
@@ -325,7 +398,7 @@ type ServerInfo struct {
 	ActiveWorkers  []*WorkerInfo  `json:"active_workers"`
 }
 
-func toServerInfo(info *inspeq.ServerInfo) *ServerInfo {
+func toServerInfo(info *asynq.ServerInfo) *ServerInfo {
 	return &ServerInfo{
 		ID:             info.ID,
 		Host:           info.Host,
@@ -339,7 +412,7 @@ func toServerInfo(info *inspeq.ServerInfo) *ServerInfo {
 	}
 }
 
-func toServerInfoList(in []*inspeq.ServerInfo) []*ServerInfo {
+func toServerInfoList(in []*asynq.ServerInfo) []*ServerInfo {
 	out := make([]*ServerInfo, len(in))
 	for i, s := range in {
 		out[i] = toServerInfo(s)
@@ -348,18 +421,24 @@ func toServerInfoList(in []*inspeq.ServerInfo) []*ServerInfo {
 }
 
 type WorkerInfo struct {
-	Task    *ActiveTask `json:"task"`
-	Started string      `json:"start_time"`
+	TaskID     string `json:"task_id"`
+	Queue      string `json:"queue"`
+	TaskType   string `json:"task_type"`
+	TakPayload string `json:"task_payload"`
+	Started    string `json:"start_time"`
 }
 
-func toWorkerInfo(info *inspeq.WorkerInfo) *WorkerInfo {
+func toWorkerInfo(info *asynq.WorkerInfo) *WorkerInfo {
 	return &WorkerInfo{
-		Task:    toActiveTask(info.Task),
-		Started: info.Started.Format(time.RFC3339),
+		TaskID:     info.TaskID,
+		Queue:      info.Queue,
+		TaskType:   info.TaskType,
+		TakPayload: toPrintablePayload(info.TaskPayload),
+		Started:    info.Started.Format(time.RFC3339),
 	}
 }
 
-func toWorkerInfoList(in []*inspeq.WorkerInfo) []*WorkerInfo {
+func toWorkerInfoList(in []*asynq.WorkerInfo) []*WorkerInfo {
 	out := make([]*WorkerInfo, len(in))
 	for i, w := range in {
 		out[i] = toWorkerInfo(w)

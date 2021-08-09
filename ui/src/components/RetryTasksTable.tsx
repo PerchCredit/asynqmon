@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { useHistory } from "react-router-dom";
 import { connect, ConnectedProps } from "react-redux";
 import { makeStyles } from "@material-ui/core/styles";
 import Table from "@material-ui/core/Table";
@@ -42,6 +43,7 @@ import { durationBefore, uuidPrefix } from "../utils";
 import { usePolling } from "../hooks";
 import { RetryTaskExtended } from "../reducers/tasksReducer";
 import { TableColumn } from "../types/table";
+import { taskDetailsPath } from "../paths";
 
 const useStyles = makeStyles((theme) => ({
   table: {
@@ -98,7 +100,7 @@ function RetryTasksTable(props: Props & ReduxProps) {
   const { pollInterval, listRetryTasksAsync, queue, pageSize } = props;
   const classes = useStyles();
   const [page, setPage] = useState(0);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string>("");
 
   const handleChangePage = (
@@ -117,10 +119,10 @@ function RetryTasksTable(props: Props & ReduxProps) {
 
   const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
-      const newSelected = props.tasks.map((t) => t.key);
-      setSelectedKeys(newSelected);
+      const newSelected = props.tasks.map((t) => t.id);
+      setSelectedIds(newSelected);
     } else {
-      setSelectedKeys([]);
+      setSelectedIds([]);
     }
   };
 
@@ -138,20 +140,20 @@ function RetryTasksTable(props: Props & ReduxProps) {
 
   const handleBatchRunClick = () => {
     props
-      .batchRunRetryTasksAsync(queue, selectedKeys)
-      .then(() => setSelectedKeys([]));
+      .batchRunRetryTasksAsync(queue, selectedIds)
+      .then(() => setSelectedIds([]));
   };
 
   const handleBatchDeleteClick = () => {
     props
-      .batchDeleteRetryTasksAsync(queue, selectedKeys)
-      .then(() => setSelectedKeys([]));
+      .batchDeleteRetryTasksAsync(queue, selectedIds)
+      .then(() => setSelectedIds([]));
   };
 
   const handleBatchArchiveClick = () => {
     props
-      .batchArchiveRetryTasksAsync(queue, selectedKeys)
-      .then(() => setSelectedKeys([]));
+      .batchArchiveRetryTasksAsync(queue, selectedIds)
+      .then(() => setSelectedIds([]));
   };
 
   const fetchData = useCallback(() => {
@@ -190,7 +192,7 @@ function RetryTasksTable(props: Props & ReduxProps) {
   ];
 
   const rowCount = props.tasks.length;
-  const numSelected = selectedKeys.length;
+  const numSelected = selectedIds.length;
   return (
     <div>
       <TableActions
@@ -246,14 +248,16 @@ function RetryTasksTable(props: Props & ReduxProps) {
                 padding="checkbox"
                 classes={{ stickyHeader: classes.stickyHeaderCell }}
               >
-                <Checkbox
-                  indeterminate={numSelected > 0 && numSelected < rowCount}
-                  checked={rowCount > 0 && numSelected === rowCount}
-                  onChange={handleSelectAllClick}
-                  inputProps={{
-                    "aria-label": "select all tasks shown in the table",
-                  }}
-                />
+                <IconButton>
+                  <Checkbox
+                    indeterminate={numSelected > 0 && numSelected < rowCount}
+                    checked={rowCount > 0 && numSelected === rowCount}
+                    onChange={handleSelectAllClick}
+                    inputProps={{
+                      "aria-label": "select all tasks shown in the table",
+                    }}
+                  />
+                </IconButton>
               </TableCell>
               {columns.map((col) => (
                 <TableCell
@@ -272,24 +276,22 @@ function RetryTasksTable(props: Props & ReduxProps) {
                 key={task.id}
                 task={task}
                 allActionPending={props.allActionPending}
-                isSelected={selectedKeys.includes(task.key)}
+                isSelected={selectedIds.includes(task.id)}
                 onSelectChange={(checked: boolean) => {
                   if (checked) {
-                    setSelectedKeys(selectedKeys.concat(task.key));
+                    setSelectedIds(selectedIds.concat(task.id));
                   } else {
-                    setSelectedKeys(
-                      selectedKeys.filter((key) => key !== task.key)
-                    );
+                    setSelectedIds(selectedIds.filter((id) => id !== task.id));
                   }
                 }}
                 onRunClick={() => {
-                  props.runRetryTaskAsync(task.queue, task.key);
+                  props.runRetryTaskAsync(task.queue, task.id);
                 }}
                 onDeleteClick={() => {
-                  props.deleteRetryTaskAsync(task.queue, task.key);
+                  props.deleteRetryTaskAsync(task.queue, task.id);
                 }}
                 onArchiveClick={() => {
-                  props.archiveRetryTaskAsync(task.queue, task.key);
+                  props.archiveRetryTaskAsync(task.queue, task.id);
                 }}
                 onActionCellEnter={() => setActiveTaskId(task.id)}
                 onActionCellLeave={() => setActiveTaskId("")}
@@ -322,7 +324,16 @@ function RetryTasksTable(props: Props & ReduxProps) {
   );
 }
 
-const useRowStyles = makeStyles({
+const useRowStyles = makeStyles((theme) => ({
+  root: {
+    cursor: "pointer",
+    "&:hover": {
+      boxShadow: theme.shadows[2],
+    },
+    "&:hover .MuiTableCell-root": {
+      borderBottomColor: theme.palette.background.paper,
+    },
+  },
   actionCell: {
     width: "140px",
   },
@@ -330,7 +341,7 @@ const useRowStyles = makeStyles({
     marginLeft: 3,
     marginRight: 3,
   },
-});
+}));
 
 interface RowProps {
   task: RetryTaskExtended;
@@ -348,15 +359,24 @@ interface RowProps {
 function Row(props: RowProps) {
   const { task } = props;
   const classes = useRowStyles();
+  const history = useHistory();
+
   return (
-    <TableRow key={task.id} selected={props.isSelected}>
-      <TableCell padding="checkbox">
-        <Checkbox
-          onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-            props.onSelectChange(event.target.checked)
-          }
-          checked={props.isSelected}
-        />
+    <TableRow
+      key={task.id}
+      className={classes.root}
+      selected={props.isSelected}
+      onClick={() => history.push(taskDetailsPath(task.queue, task.id))}
+    >
+      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+        <IconButton>
+          <Checkbox
+            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+              props.onSelectChange(event.target.checked)
+            }
+            checked={props.isSelected}
+          />
+        </IconButton>
       </TableCell>
       <TableCell component="th" scope="row">
         {uuidPrefix(task.id)}
@@ -367,7 +387,7 @@ function Row(props: RowProps) {
           language="json"
           customStyle={{ margin: 0, maxWidth: 400 }}
         >
-          {JSON.stringify(task.payload)}
+          {task.payload}
         </SyntaxHighlighter>
       </TableCell>
       <TableCell>{durationBefore(task.next_process_at)}</TableCell>
@@ -379,6 +399,7 @@ function Row(props: RowProps) {
         className={classes.actionCell}
         onMouseEnter={props.onActionCellEnter}
         onMouseLeave={props.onActionCellLeave}
+        onClick={(e) => e.stopPropagation()}
       >
         {props.showActions ? (
           <React.Fragment>
